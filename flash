@@ -1,0 +1,110 @@
+#!/usr/bin/perl -w
+
+require 5;
+
+use strict;
+use warnings;
+
+use Getopt::Long;
+
+Getopt::Long::Configure('bundling');
+
+our $nd_filter = 0;
+our $underexposure = 0;
+our $overexposure = 0;
+our $guide_number = 66;
+our $watt_seconds;
+our $inches = 0;
+
+GetOptions(
+  'nd_filter=f' => \$nd_filter,
+  'underexposure=f' => \$underexposure,
+  'overexposure=f' => \$overexposure,
+  'guide_number=f' => \$guide_number,
+  'watt_seconds=f' => \$watt_seconds,
+  'inches' => \$inches,
+);
+
+if ($overexposure != 0 and $underexposure != 0) {
+  die "Can't specify both under- and over-exposure together.";
+}
+
+if (defined $watt_seconds) {
+  $guide_number = sqrt($watt_seconds) * 13.2;
+  # http://dpanswers.com/roztr/content_show.php?id=317
+}
+
+our $stop0 = 0;
+our @stops = qw(
+  1.0  1.1  1.3
+  1.4  1.6  1.8
+  2    2.2  2.5
+  2.8  3.2  3.5
+  4    4.5  5
+  5.6  6.3  7.1
+  8    9    10
+  11   13   14
+  16   18   20
+  22   25   28
+  32   36   40
+);
+
+my($distance, $iso) = @ARGV;
+my $net_speed = $iso;
+
+# Convert log 10 ND filter numbers into 1/3rd stops if they look like a decimal value.
+my $nd_filter_e = $nd_filter;
+if ($nd_filter =~ /\./) {
+  $nd_filter_e = (sprintf "%.f", 3*log(10**$nd_filter)/log(2))/3;
+}
+
+printf "Film speed:            %4.f\n", $iso;
+$net_speed *= 2 ** -$nd_filter_e;
+printf "ND Filter:  %4.1f stops %4.1f\n", -$nd_filter_e, $net_speed;
+
+my $diff_iso = (log($iso)-log(100))/log(2);
+my $diff_net = (log($net_speed)-log($iso))/log(2);
+
+print "\n";
+printf "%4.1f - %4d = %4.1f stops\n", $iso, 100, $diff_iso;
+printf "%4.1f - %4d = %4.1f stops\n", $net_speed, $iso, $diff_net;
+printf "NET           %4.1f stops\n", $diff_iso + $diff_net;
+
+my $net_gn = $guide_number * (sqrt(2) ** ($diff_iso + $diff_net));
+
+print "\n";
+printf "GN (ISO %4.1f, ft) = %d\n", 100, $guide_number;
+printf "GN (ISO %4.1f, ft) = %.f\n", $net_speed, $net_gn;
+
+sub distf($) {
+  my($ft) = shift;
+  if ($inches) {
+    return sprintf "%.f inches", 12 * $ft;
+  }
+  return sprintf "%.1f ft", $ft;
+}
+
+if ($distance =~ m{^f/(.*)}) {
+  my $aperture = $1;
+  my $distance = $net_gn / $aperture;
+
+  print "\n";
+  printf "Distance %s (correct)\n", distf $distance;
+  if ($overexposure != 0) {
+    printf "Distance %s (%4.1f stops over)\n", distf($distance * sqrt(2)**-$overexposure), $overexposure;
+  }
+  if ($underexposure != 0) {
+    printf "Distance %s (%4.1f stops under)\n", distf($distance * sqrt(2)**$underexposure), $underexposure;
+  }
+} else {
+  my $aperture = $net_gn / $distance;
+
+  print "\n";
+  printf "Aperture f/%.1f (correct)\n", $aperture;
+  if ($overexposure != 0) {
+    printf "Aperture f/%.1f (%4.1f stops over)\n", $aperture * sqrt(2)**-$overexposure, $overexposure;
+  }
+  if ($underexposure != 0) {
+    printf "Aperture f/%.1f (%4.1f stops under)\n", $aperture * sqrt(2)**$underexposure, $underexposure;
+  }
+}
